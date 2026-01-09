@@ -5,12 +5,8 @@ import { ProjectInput } from './components/ProjectInput';
 import { TaskCard } from './components/TaskCard';
 import { DurationSlider } from './components/DurationSlider';
 import { breakdownProject, chatWithAssistant, generateRoutine } from './services/geminiService';
-import { auth, loginWithGoogle, logout, saveUserData, getUserData } from './services/firebaseService';
-import { onAuthStateChanged, User } from 'firebase/auth';
 
 const App: React.FC = () => {
-  const [user, setUser] = useState<User | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
   const [view, setView] = useState<AppView>('dashboard');
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
@@ -36,41 +32,6 @@ const App: React.FC = () => {
     category: 'Personal'
   });
 
-  // Auth Observer
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-      if (currentUser) {
-        const data = await getUserData(currentUser.uid);
-        if (data) {
-          setProjects(data.projects || []);
-          setTasks(data.tasks || []);
-          setRoutine(data.routine || []);
-          setOffTimes(data.offTimes || []);
-          setChatHistory(data.chatHistory || []);
-        }
-      }
-      setAuthLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  // Auto-save to Firestore when data changes
-  useEffect(() => {
-    if (user) {
-      const timeoutId = setTimeout(() => {
-        saveUserData(user.uid, {
-          projects,
-          tasks,
-          routine,
-          offTimes,
-          chatHistory
-        });
-      }, 1000); // Debounce saves
-      return () => clearTimeout(timeoutId);
-    }
-  }, [projects, tasks, routine, offTimes, chatHistory, user]);
-
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatHistory, isTyping]);
@@ -85,6 +46,7 @@ const App: React.FC = () => {
 
   const handleProjectDelete = (projectId: string) => {
     setProjects(prev => prev.filter(p => p.id !== projectId));
+    // CASCADING DELETE: Automatically removes all related tasks
     setTasks(prev => prev.filter(t => t.projectRef !== projectId));
   };
 
@@ -227,33 +189,6 @@ const App: React.FC = () => {
 
   const DAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
-  if (authLoading) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-        <div className="w-10 h-10 border-4 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center">
-        <div className="w-16 h-16 bg-orange-500 rounded-3xl flex items-center justify-center mb-8 shadow-2xl shadow-orange-200">
-           <div className="w-8 h-1 bg-white rounded-full"></div>
-        </div>
-        <h1 className="text-4xl font-black text-slate-900 tracking-tighter mb-4">Harmony Planner</h1>
-        <p className="text-slate-500 max-w-xs mb-10 font-medium">Your projects, parallel processed. Sign in to sync your schedule across all devices.</p>
-        <button 
-          onClick={loginWithGoogle}
-          className="flex items-center gap-4 bg-slate-950 text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-xs shadow-2xl shadow-slate-200 hover:scale-105 transition-all"
-        >
-          <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5 bg-white p-0.5 rounded-full" alt="Google" />
-          Login with Google
-        </button>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-slate-50 font-inter selection:bg-orange-500 selection:text-white">
       <header className="fixed top-0 w-full bg-slate-950 text-white z-50 h-16 px-6 flex items-center justify-between shadow-2xl">
@@ -278,14 +213,9 @@ const App: React.FC = () => {
           ))}
         </nav>
 
-        <div className="flex items-center gap-2">
-          <button onClick={() => setIsChatOpen(!isChatOpen)} className="p-2 text-slate-400 hover:text-orange-500 transition-colors">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
-          </button>
-          <button onClick={logout} className="p-2 text-slate-400 hover:text-red-500 transition-colors">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
-          </button>
-        </div>
+        <button onClick={() => setIsChatOpen(!isChatOpen)} className="p-2 text-slate-400 hover:text-orange-500 transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+        </button>
       </header>
 
       <main className="max-w-4xl mx-auto pt-24 pb-32 px-6">
@@ -293,7 +223,7 @@ const App: React.FC = () => {
           <div className="space-y-10 animate-in fade-in duration-500">
             <div className="flex justify-between items-end">
               <div>
-                <h2 className="text-4xl font-black text-slate-900 tracking-tighter">Hi, {user.displayName?.split(' ')[0]}</h2>
+                <h2 className="text-4xl font-black text-slate-900 tracking-tighter">Home</h2>
                 <p className="text-slate-400 font-medium">Focusing on what's next.</p>
               </div>
               <button 
